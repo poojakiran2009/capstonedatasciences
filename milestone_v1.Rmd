@@ -1,0 +1,238 @@
+# Synopsis
+
+This is a milestone report for the capstone project of the data sciences specialization. This is an exploratory analysis of the training dataset. This will involve summaries of the 3 files in terms of word counts, line counts, chaacter counts. Histograms will be done to see what are the most frequently occuring words. 
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      warning=FALSE, message=FALSE)
+```
+
+# Part 1 - Load Files and libraries
+
+ We load the libraries and then set the current directory. We download the file and unzip the contents. We download the bad words from a publicly available URL in case it will be useful. We will read all the three files and calculate the line count and also calculate the character count as these are easy to calculate. Word count is difficult and will require the tm package which we do later on
+
+```{r eval=TRUE, echo=TRUE}
+library (data.table)
+library (caret)
+library (ggplot2)
+library (stringr)
+library (wordcloud)
+library (tm)
+library (RWeka)
+library(SnowballC)
+library (slam)
+
+
+setwd ("/home/kirana/coursera")
+if (!file.exists("Coursera-SwiftKey.zip")) {
+    download.file("https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip", 
+        destfile = "Coursera-SwiftKey.zip")
+	system ("unzip -d swiftkey Coursera-SwiftKey.zip")
+}
+setwd ("swiftkey/final/en_US")
+
+download.file("http://www.frontgatemedia.com/new/wp-content/uploads/2014/03/Terms-to-Block.csv", 
+        destfile = "badwords.csv")
+
+blogLines=readLines(file("en_US.blogs.txt","r"))
+twitterLines=readLines(file("en_US.twitter.txt","r"))
+newsLines=readLines(file("en_US.news.txt","r"))
+
+fileNames <- c("en_US.blogs.txt","en_US.twitter.txt","en_US.news.txt" )
+lcs <- c(length(blogLines), length(twitterLines), length(newsLines))
+cs <- c(sum (nchar(blogLines)), sum(nchar(twitterLines)), sum(nchar (newsLines)))
+
+
+googlebadwords <- read.csv ("badwords.csv",header = FALSE, stringsAsFactors = F)
+googlebadwords <- c(googlebadwords$V1, googlebadwords$V2)
+googlebadwords <- unique (googlebadwords)
+
+
+```
+
+# Part 2 - Preprocess the files and Create Term Document Matrix
+
+ We create a generic function to preprocess the corpus. This involves removing punctuation, removing numbers, stripping out the whitespace, converting to lowercase and removing stopwords in English. We then create a corpus for the twitter, blog and news datasets. We then generate 1-gram, 2-gram and 3-gram Term Document Matrix (TDM) from the above corpora. Note that due to memory limitations, we will choose first 50000 rows of each
+
+```{r eval=TRUE, echo=TRUE}
+preprocess_corpus <- function (mycorpus) {
+
+
+  mycorpus<-tm_map(mycorpus, content_transformer(function(x, y) gsub(y, "", x,fixed=TRUE)), "#\\w+")                      
+  mycorpus<-tm_map(mycorpus, content_transformer(function(x, y) gsub(y, "", x,fixed=TRUE)), "(\\b\\S+\\@\\S+\\..{1,3}(\\s)?\\b)") 
+  mycorpus<-tm_map(mycorpus, content_transformer(function(x, y) gsub(y, "", x,fixed=TRUE)), "@\\w+")                    
+  mycorpus<-tm_map(mycorpus, content_transformer(function(x, y) gsub(y, "", x,fixed=TRUE)), "http[^[:space:]]*") 
+  mycorpus<-tm_map(mycorpus, content_transformer(function(x, y) gsub(y, " ", x,fixed=TRUE)), "/|@|\\|")                  
+
+	mycorpus <- tm_map (mycorpus, removePunctuation )
+	mycorpus <- tm_map (mycorpus, removeNumbers )
+	mycorpus <- tm_map (mycorpus, content_transformer(tolower))
+	mycorpus <- tm_map (mycorpus, removeWords, stopwords('english') )
+	mycorpus <- tm_map (mycorpus, stripWhitespace )
+
+}
+
+
+
+mycorpus_twitter <- Corpus (x=VectorSource (sample(twitterLines, length(twitterLines) * 0.01)))
+mycorpus_blog <- Corpus (x=VectorSource (sample(blogLines, length(blogLines) * 0.01)))
+mycorpus_news <- Corpus (x=VectorSource (sample(newsLines, length(newsLines) * 0.01)))
+
+
+
+mycorpus_blog <- preprocess_corpus (mycorpus_blog)
+mycorpus_news <- preprocess_corpus (mycorpus_news)
+mycorpus_twitter <- preprocess_corpus(mycorpus_twitter)
+
+```
+
+
+```{r eval=TRUE, echo=TRUE}
+
+mytdm_twitter1 <- TermDocumentMatrix (mycorpus_twitter, control = list (weighting = weightBin, tokenize = function (x) NGramTokenizer (x, Weka_control(min=1, max=1))))
+mytdm_blog1 <- TermDocumentMatrix (mycorpus_blog, control = list (weighting = weightBin, tokenize = function (x) NGramTokenizer (x, Weka_control(min=1, max=1))))
+mytdm_news1 <- TermDocumentMatrix (mycorpus_news, control = list (weighting = weightBin, tokenize = function (x) NGramTokenizer (x, Weka_control(min=1, max=1))))
+mytdm_twitter2 <- TermDocumentMatrix (mycorpus_twitter, control = list (weighting = weightBin, tokenize = function (x) NGramTokenizer (x, Weka_control(min=2, max=2))))
+mytdm_blog2 <- TermDocumentMatrix (mycorpus_blog, control = list (weighting = weightBin, tokenize = function (x) NGramTokenizer (x, Weka_control(min=2, max=2))))
+mytdm_news2 <- TermDocumentMatrix (mycorpus_news, control = list (weighting = weightBin, tokenize = function (x) NGramTokenizer (x, Weka_control(min=2, max=2))))
+mytdm_twitter3 <- TermDocumentMatrix (mycorpus_twitter, control = list (weighting = weightBin, tokenize = function (x) NGramTokenizer (x, Weka_control(min=3, max=3))))
+mytdm_blog3 <- TermDocumentMatrix (mycorpus_blog, control = list (weighting = weightBin, tokenize = function (x) NGramTokenizer (x, Weka_control(min=3, max=3))))
+mytdm_news3 <- TermDocumentMatrix (mycorpus_news, control = list (weighting = weightBin, tokenize = function (x) NGramTokenizer (x, Weka_control(min=3, max=3))))
+
+```
+
+# Part 3 - Basic Summaries of the Datasets
+  We now print out the basic summaries of the 3 files: word counts, line counts and basic data tables
+
+```{r eval=TRUE, echo=TRUE}
+wcs <- c(nrow (mytdm_blog1), nrow(mytdm_twitter1), nrow(mytdm_news1))
+
+mydf <- data.frame (files = fileNames, word_counts = wcs, line_counts = lcs, character_counts = cs)
+print (mydf)
+
+print ("Top 10 unigrams for the datasets")
+library (slam)
+print ("For Twitter, followed by Blog and then by News")
+sort (row_sums (mytdm_twitter1), decreasing=TRUE ) [1:10]
+sort (row_sums (mytdm_blog1), decreasing=TRUE ) [1:10]
+sort (row_sums (mytdm_news1), decreasing=TRUE ) [1:10]
+
+
+print ("Top 10 bigrams for the datasets")
+print ("For Twitter, followed by Blog and then by News")
+sort (row_sums (mytdm_twitter2), decreasing=TRUE ) [1:10]
+sort (row_sums (mytdm_blog2), decreasing=TRUE ) [1:10]
+sort (row_sums (mytdm_news2), decreasing=TRUE ) [1:10]
+
+print ("Top 10 trigrams for the datasets")
+print ("For Twitter, followed by Blog and then by News")
+sort (row_sums (mytdm_twitter3), decreasing=TRUE ) [1:10]
+sort (row_sums (mytdm_blog3), decreasing=TRUE ) [1:10]
+sort (row_sums (mytdm_news3), decreasing=TRUE ) [1:10]
+```
+
+
+
+# Part 4 - Histograms to look at the frequencies of the data
+ We write a function return a table for a TDM with the word and the frequency count that corresponds to the word. Using this we can plot various historgrams
+
+``` {r eval=TRUE, echo=TRUE}
+plotdata <- function (mytdm) {
+	temp <- sort (row_sums (mytdm), decreasing=TRUE ) 
+	tbl <- data.frame (word = names(temp), freq = temp)
+	tbl <- tbl [order(tbl$freq, decreasing=TRUE),]
+	return (tbl)
+}
+print ("Histogram for the top 30 word count: Blog: Unigram")
+ggplot (plotdata(mytdm_blog1)[1:30,], aes (x=reorder(word, -freq), y= freq)) +
+geom_bar (stat="identity", fill="blue") + 
+ggtitle ("Unigrams Frequency - Blogs") +
+ylab ("Frequency") + 
+xlab ("Term") 
+print ("Histogram for the  top 30 word count: Twitter: Unigram")
+ggplot (plotdata(mytdm_twitter1)[1:30,], aes (x=reorder(word, -freq), y= freq)) +
+geom_bar (stat="identity", fill="blue") + 
+geom_text (aes (label=freq), vjust=-0.5) + 
+ggtitle ("Unigrams Frequency - Twitter") +
+ylab ("Frequency") + 
+xlab ("Term")
+print ("Histogram for the  top 30 word count: News: Unigram")
+ggplot (plotdata(mytdm_news1)[1:30,], aes (x=reorder(word, -freq), y= freq)) +
+geom_bar (stat="identity", fill="blue") + 
+geom_text (aes (label=freq), vjust=-0.5) + 
+ggtitle ("Unigrams Frequency - News") +
+ylab ("Frequency") + 
+xlab ("Term")
+
+print ("Histogram for the  top 30 word count: Blog: Bigram")
+ggplot (plotdata(mytdm_blog2)[1:30,], aes (x=reorder(word, -freq), y= freq)) +
+geom_bar (stat="identity", fill="blue") + 
+ggtitle ("Bigrams Frequency - Blogs") +
+ylab ("Frequency") + 
+xlab ("Term") 
+print ("Histogram for the  top 30 word count: Twitter: Bigram")
+ggplot (plotdata(mytdm_twitter2)[1:30,], aes (x=reorder(word, -freq), y= freq)) +
+geom_bar (stat="identity", fill="blue") + 
+geom_text (aes (label=freq), vjust=-0.5) + 
+ggtitle ("Bigrams Frequency - Twitter") +
+ylab ("Frequency") + 
+xlab ("Term")
+print ("Histogram for the  top 30 word count: News: Bigram")
+ggplot (plotdata(mytdm_news2)[1:30,], aes (x=reorder(word, -freq), y= freq)) +
+geom_bar (stat="identity", fill="blue") + 
+geom_text (aes (label=freq), vjust=-0.5) + 
+ggtitle ("Bigrams Frequency - News") +
+ylab ("Frequency") + 
+xlab ("Term")
+
+
+print ("Histogram for the  top 30 word count: Blog: Trigram")
+ggplot (plotdata(mytdm_blog3)[1:30,], aes (x=reorder(word, -freq), y= freq)) +
+geom_bar (stat="identity", fill="blue") + 
+ggtitle ("Trigrams Frequency - Blogs") +
+ylab ("Frequency") + 
+xlab ("Term") 
+print ("Histogram for the  top 30 word count: Twitter: Trigram")
+ggplot (plotdata(mytdm_twitter3)[1:30,], aes (x=reorder(word, -freq), y= freq)) +
+geom_bar (stat="identity", fill="blue") + 
+geom_text (aes (label=freq), vjust=-0.5) + 
+ggtitle ("Trigrams Frequency - Twitter") +
+ylab ("Frequency") + 
+xlab ("Term")
+print ("Histogram for the  top 30 word count: News: Trigram")
+ggplot (plotdata(mytdm_news3)[1:30,], aes (x=reorder(word, -freq), y= freq)) +
+geom_bar (stat="identity", fill="blue") + 
+geom_text (aes (label=freq), vjust=-0.5) + 
+ggtitle ("Trigrams Frequency - News") +
+ylab ("Frequency") + 
+xlab ("Term")
+```
+
+Now we will look at word clouds
+
+```{r eval=TRUE, echo=TRUE}
+library(wordcloud)
+set.seed(52)
+
+tbl <- plotdata (mytdm_blog1)
+wordcloud(tbl$word, tbl$freq, max.words=50, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))
+tbl <- plotdata (mytdm_news1)
+wordcloud(tbl$word, tbl$freq, max.words=50, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))
+tbl <- plotdata (mytdm_twitter1)
+wordcloud(tbl$word, tbl$freq, max.words=50, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))
+tbl <- plotdata (mytdm_blog2)
+wordcloud(tbl$word, tbl$freq, max.words=50, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))
+tbl <- plotdata (mytdm_news2)
+wordcloud(tbl$word, tbl$freq, max.words=50, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))
+tbl <- plotdata (mytdm_twitter2)
+wordcloud(tbl$word, tbl$freq, max.words=50, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))
+tbl <- plotdata (mytdm_blog3)
+wordcloud(tbl$word, tbl$freq, max.words=50, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))
+tbl <- plotdata (mytdm_news3)
+wordcloud(tbl$word, tbl$freq, max.words=50, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))
+tbl <- plotdata (mytdm_twitter3)
+wordcloud(tbl$word, tbl$freq, max.words=50, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))
+```
+
+# Summary
+ This concludes the exploratory analysis - next step will be to build a predictive algorithm and a shiny app. Our strategy will be to use a classifier to predict which will be the next word in a sentence. Shiny app will ask the user for input of 1 or 2 or words and will predict the next ones
+
